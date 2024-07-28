@@ -1,8 +1,13 @@
 #include <U8g2lib.h>
+#include "Memory.h"
 
-#define SELECT_PIN 2
-#define UP_PIN 3
-#define DN_PIN 4
+#define ROT_BTN 2
+#define ROT_CLK 3
+#define ROT_DAT 4
+
+#define MENU_SCR -1
+
+#define MEM_ADDR_SEL_MENU_ITEM 1
 
 // 'item_sel_background', 128x21px
 const unsigned char bitmap_item_sel_background[] PROGMEM = {
@@ -59,9 +64,9 @@ const int NUM_ITEMS = 10;
 
 // Array of all bitmap icons for convenience.
 const unsigned char* item_icons[NUM_ITEMS] = {
-  bitmap_icon_prev,
   bitmap_icon_selected,
-  bitmap_icon_next,
+  bitmap_icon_selected,
+  bitmap_icon_selected,
   bitmap_icon_selected,
   bitmap_icon_selected,
   bitmap_icon_selected,
@@ -71,61 +76,100 @@ const unsigned char* item_icons[NUM_ITEMS] = {
   bitmap_icon_selected
 };
 
-char item_titles[NUM_ITEMS][20] = {
-  { "Item #0" },
-  { "Item #1" },
-  { "Item #2" },
-  { "Item #3" },
-  { "Item #4" },
-  { "Item #5" },
-  { "Item #6" },
-  { "Item #7" },
-  { "Item #8" },
-  { "Item #9" }
+const char item_titles[NUM_ITEMS][11] = {
+  { "Module #00" },
+  { "Module #01" },
+  { "Module #02" },
+  { "Module #03" },
+  { "Module #04" },
+  { "Module #05" },
+  { "Module #06" },
+  { "Module #07" },
+  { "Module #08" },
+  { "Module #09" }
 };
 
 int item_sel_prev = 0;
 int item_sel_curr = 1;
 int item_sel_next = 2;
 
+volatile int rot_val = item_sel_curr;
+int last_rot_val = item_sel_curr;
+
+volatile bool btn_pressed = false;
+
 int scroll_handle_height = 64 / NUM_ITEMS;
 
+int current_screen = MENU_SCR;
+
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0);
+
+Memory memory;
 
 void setup() {
   Serial.begin(19200);
 
-  pinMode(UP_PIN, INPUT_PULLUP);
-  pinMode(DN_PIN, INPUT_PULLUP);
-  pinMode(SELECT_PIN, INPUT_PULLUP);
+  pinMode(ROT_CLK, INPUT_PULLUP);  // TODO: No pull up on the rotary encoder?
+  pinMode(ROT_DAT, INPUT_PULLUP);  // TODO: No pull up on the rotary encoder?
+
+  pinMode(ROT_BTN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(ROT_CLK), rotary_interrupt_handler, LOW);
+  attachInterrupt(digitalPinToInterrupt(ROT_BTN), btn_interrupt_handler, LOW);
 
   u8g2.setBitmapMode(1);
   u8g2.begin();
+
+  // u8g2.clearDisplay();
+  // delay(2000);
+
+  Serial.println("----------");
+  Serial.println("Menu Thing");
+  Serial.println("----------");
 }
 
 void loop() {
-  if (digitalRead(SELECT_PIN) == LOW) {
-    Serial.println("Enter!");
+  switch (current_screen) {
+    case MENU_SCR:
+      drawMenu();
+      break;
+    default:
+      drawItem(current_screen);
+      break;
+  }
+}
+
+void drawMenu() {
+  if (btn_pressed) {
+    current_screen = item_sel_curr;
+    memory.update(MEM_ADDR_SEL_MENU_ITEM, item_sel_curr);
+
+    btn_pressed = false;
+
+    return;
   }
 
-  if (digitalRead(UP_PIN) == LOW) {
-    if (--item_sel_curr < 0) {
-      item_sel_curr = NUM_ITEMS - 1;
+  if (rot_val != last_rot_val) {
+    item_sel_curr = rot_val;
+    if (item_sel_curr < 0) {
+      rot_val = item_sel_curr = NUM_ITEMS - 1;
     }
-  } else if (digitalRead(DN_PIN) == LOW) {
-    if (++item_sel_curr >= NUM_ITEMS) {
-      item_sel_curr = 0;
+
+    if (item_sel_curr >= NUM_ITEMS) {
+      rot_val = item_sel_curr = 0;
     }
-  }
 
-  item_sel_prev = item_sel_curr - 1;
-  if (item_sel_prev < 0) {
-    item_sel_prev = NUM_ITEMS - 1;
-  }
+    item_sel_prev = item_sel_curr - 1;
+    if (item_sel_prev < 0) {
+      item_sel_prev = NUM_ITEMS - 1;
+    }
 
-  item_sel_next = item_sel_curr + 1;
-  if (item_sel_next >= NUM_ITEMS) {
-    item_sel_next = 0;
+    item_sel_next = item_sel_curr + 1;
+    if (item_sel_next >= NUM_ITEMS) {
+      item_sel_next = 0;
+    }
+
+    last_rot_val = rot_val;
   }
 
   int scroll_percentage = map(item_sel_curr, 0, NUM_ITEMS, 0, 100);
@@ -159,4 +203,50 @@ void loop() {
 
 int getScrollPixel(int val) {
   return map(val, 0, 100, 0, 64);
+}
+
+void drawItem(int val) {
+  if (btn_pressed) {
+    returnToMenu();
+    btn_pressed = false;
+
+    return;
+  }
+
+  u8g2.firstPage();
+  do {
+    u8g2.setFont(u8g2_font_7x14B_mf);
+    u8g2.drawStr(26, 37, item_titles[val]);
+  } while (u8g2.nextPage());
+}
+
+void returnToMenu() {
+  current_screen = MENU_SCR;
+  rot_val = memory.read(MEM_ADDR_SEL_MENU_ITEM);
+}
+
+void rotary_interrupt_handler() {
+  static unsigned long last_rot_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+
+  if (interrupt_time - last_rot_interrupt_time > 5) {
+    if (digitalRead(ROT_DAT) == LOW) {
+      --rot_val;
+    } else {
+      ++rot_val;
+    }
+  }
+
+  last_rot_interrupt_time = interrupt_time;
+}
+
+void btn_interrupt_handler() {
+  static unsigned long last_btn_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+
+  if (interrupt_time - last_btn_interrupt_time > 5) {
+    btn_pressed = true;
+  }
+
+  last_btn_interrupt_time = interrupt_time;
 }
