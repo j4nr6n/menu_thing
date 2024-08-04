@@ -7,7 +7,15 @@
 
 #define MENU_SCR -1
 
-#define MEM_ADDR_SEL_MENU_ITEM 1
+#define SEL_MENU_ITEM_MEM_ADDR 1
+
+#define OUT_0 6
+#define OUT_1 7
+#define OUT_2 8
+
+#define OUT_0_MEM_ADDR 10
+#define OUT_1_MEM_ADDR 11
+#define OUT_2_MEM_ADDR 12
 
 // 'item_sel_background', 128x21px
 const unsigned char bitmap_item_sel_background[] PROGMEM = {
@@ -60,33 +68,19 @@ const unsigned char bitmap_icon_selected[] PROGMEM = {
   0x54, 0x2a, 0x94, 0x29, 0x24, 0x24, 0xc8, 0x13, 0x10, 0x08, 0xe0, 0x07, 0x00, 0x00, 0x00, 0x00
 };
 
-const int NUM_ITEMS = 10;
+const int NUM_ITEMS = 3;
 
 // Array of all bitmap icons for convenience.
 const unsigned char* item_icons[NUM_ITEMS] = {
-  bitmap_icon_selected,
-  bitmap_icon_selected,
-  bitmap_icon_selected,
-  bitmap_icon_selected,
-  bitmap_icon_selected,
-  bitmap_icon_selected,
-  bitmap_icon_selected,
   bitmap_icon_selected,
   bitmap_icon_selected,
   bitmap_icon_selected
 };
 
 const char item_titles[NUM_ITEMS][11] = {
-  { "Module #00" },
-  { "Module #01" },
-  { "Module #02" },
-  { "Module #03" },
-  { "Module #04" },
-  { "Module #05" },
-  { "Module #06" },
-  { "Module #07" },
-  { "Module #08" },
-  { "Module #09" }
+  { "Output #00" },
+  { "Output #01" },
+  { "Output #02" },
 };
 
 int item_sel_prev = 0;
@@ -114,14 +108,19 @@ void setup() {
 
   pinMode(ROT_BTN, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(ROT_CLK), rotary_interrupt_handler, LOW);
-  attachInterrupt(digitalPinToInterrupt(ROT_BTN), btn_interrupt_handler, LOW);
+  attachInterrupt(digitalPinToInterrupt(ROT_CLK), rotaryInterruptHandler, LOW);
+  attachInterrupt(digitalPinToInterrupt(ROT_BTN), buttonInterruptHandler, LOW);
+
+  // Setup the outputs
+  pinMode(OUT_0, OUTPUT);
+  pinMode(OUT_1, OUTPUT);
+  pinMode(OUT_2, OUTPUT);
 
   u8g2.setBitmapMode(1);
   u8g2.begin();
 
-  // u8g2.clearDisplay();
-  // delay(2000);
+  u8g2.clearDisplay();
+  delay(1500);
 
   Serial.println("----------");
   Serial.println("Menu Thing");
@@ -129,6 +128,10 @@ void setup() {
 }
 
 void loop() {
+  digitalWrite(OUT_0, memory.read(OUT_0_MEM_ADDR));
+  digitalWrite(OUT_1, memory.read(OUT_1_MEM_ADDR));
+  digitalWrite(OUT_2, memory.read(OUT_2_MEM_ADDR));
+
   switch (current_screen) {
     case MENU_SCR:
       drawMenu();
@@ -142,7 +145,9 @@ void loop() {
 void drawMenu() {
   if (btn_pressed) {
     current_screen = item_sel_curr;
-    memory.update(MEM_ADDR_SEL_MENU_ITEM, item_sel_curr);
+    memory.update(SEL_MENU_ITEM_MEM_ADDR, item_sel_curr);
+    
+    rot_val = memory.read(10 + item_sel_curr);
 
     btn_pressed = false;
 
@@ -207,25 +212,41 @@ int getScrollPixel(int val) {
 
 void drawItem(int val) {
   if (btn_pressed) {
-    returnToMenu();
+    memory.update(10 + val, last_rot_val);
+
     btn_pressed = false;
 
-    return;
+    return toMenu();
+  }
+
+  int curr_val = rot_val;
+
+  if (rot_val != last_rot_val) {
+    if (curr_val < 0) {
+      rot_val = curr_val = 1;
+    }
+
+    if (curr_val > 1) {
+      rot_val = curr_val = 0;
+    }
+
+    last_rot_val = rot_val;
   }
 
   u8g2.firstPage();
   do {
     u8g2.setFont(u8g2_font_7x14B_mf);
-    u8g2.drawStr(26, 37, item_titles[val]);
+    u8g2.drawStr(26, 37, "Status: ");
+    u8g2.drawStr(80, 37, (curr_val == 1) ? "On" : "Off");
   } while (u8g2.nextPage());
 }
 
-void returnToMenu() {
+void toMenu() {
   current_screen = MENU_SCR;
-  rot_val = memory.read(MEM_ADDR_SEL_MENU_ITEM);
+  rot_val = memory.read(SEL_MENU_ITEM_MEM_ADDR);
 }
 
-void rotary_interrupt_handler() {
+void rotaryInterruptHandler() {
   static unsigned long last_rot_interrupt_time = 0;
   unsigned long interrupt_time = millis();
 
@@ -240,7 +261,7 @@ void rotary_interrupt_handler() {
   last_rot_interrupt_time = interrupt_time;
 }
 
-void btn_interrupt_handler() {
+void buttonInterruptHandler() {
   static unsigned long last_btn_interrupt_time = 0;
   unsigned long interrupt_time = millis();
 

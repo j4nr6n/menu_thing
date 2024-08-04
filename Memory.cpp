@@ -1,5 +1,5 @@
-#include <EEPROM.h>
 #include "Memory.h"
+#include <EEPROM.h>
 
 Memory::Memory() {
   if (!isInitialized()) {

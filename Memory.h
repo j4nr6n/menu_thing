@@ -1,19 +1,16 @@
-#ifndef Memory_h
-#define Memory_h
+#pragma once
 
 #include <Arduino.h>
 
 class Memory {
-  public:
-    static const uint8_t INIT_FLAG_ADDR = 0;
+public:
+  static const uint8_t INIT_FLAG_ADDR = 0;
 
-    Memory();
+  Memory();
 
-    uint8_t read(int addr);
-    void update(int addr, uint8_t val);
-  private:
-    void initialize();
-    bool isInitialized();
+  uint8_t read(int addr);
+  void update(int addr, uint8_t val);
+private:
+  void initialize();
+  bool isInitialized();
 };
-
-#endif
